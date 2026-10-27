@@ -151,14 +151,17 @@ Authorization: {{$dotenv OBJECTS_AUTH}}
 GET {{$dotenv OBJECTS_URL}}/object?type=РегистрСведений._ДемоРеестрСкладскихДокументов&id={{$dotenv PARTNER_ID}}
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
-### Прочитать хранилище значения
-# Если поиск нашёл вариант отчёта, подставьте его id вместо литерала.
-# Ожидание: 200; header.Настройки — JSON null или строка base64.
+### Найти вариант отчёта для чтения хранилища значения
+# Ожидание: 200; items[0].id — вариант, который читает запрос ниже. Нужен хотя бы один вариант отчёта.
+# @name variantSearch
 GET {{$dotenv OBJECTS_URL}}/search?type=Справочник.ВариантыОтчетов&q=а&limit=1
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
-###
-GET {{$dotenv OBJECTS_URL}}/object?type=Справочник.ВариантыОтчетов&id=00000000-0000-0000-0000-000000000000
+### Прочитать хранилище значения
+# Ожидание: 200; header.Настройки — JSON null или строка base64.
+# Это же чтение даёт образец для создания варианта ниже.
+# @name variantRead
+GET {{$dotenv OBJECTS_URL}}/object?type=Справочник.ВариантыОтчетов&id={{variantSearch.response.body.$.items[0].id}}
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
 # ---------------------------------------------------------------------------
@@ -386,17 +389,6 @@ Authorization: {{$dotenv OBJECTS_AUTH}}
 Content-Type: application/json
 
 {"type":"Справочник.ВариантыОтчетов","header":{"Наименование":"Контрольный вариант","Настройки":"%%%"},"tables":{}}
-
-### Вариант отчёта: прочитать существующий для образца
-# Образец для запроса ниже: id первого найденного варианта, затем его header.
-# @name variantSearch
-GET {{$dotenv OBJECTS_URL}}/search?type=Справочник.ВариантыОтчетов&q=а&limit=1
-Authorization: {{$dotenv OBJECTS_AUTH}}
-
-###
-# @name variantRead
-GET {{$dotenv OBJECTS_URL}}/object?type=Справочник.ВариантыОтчетов&id={{variantSearch.response.body.$.items[0].id}}
-Authorization: {{$dotenv OBJECTS_AUTH}}
 
 ### Вариант отчёта с хранилищем из существующего варианта
 # Не выполнялся. Обязательные поля варианта (Автор, Отчет, ТипОтчета, Назначение) берутся из образца.
