@@ -82,8 +82,51 @@ Authorization: {{$dotenv OBJECTS_AUTH}}
 GET {{$dotenv OBJECTS_URL}}/type?name=безточки
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
-### Найти объекты типа
+### Найти партнёров по наименованию
+# Ожидание: 200; items/hasMore; у элемента, если он есть, есть id, name, isFolder.
+# Если партнёр называется иначе, замените только литерал q на часть его наименования.
 GET {{$dotenv OBJECTS_URL}}/search?type=Справочник._ДемоПартнеры&q=Альфа
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Символ % в поиске объектов ищется буквально
+# Ожидание: 200; PARTNER_ID в items нет.
+GET {{$dotenv OBJECTS_URL}}/search?type=Справочник._ДемоПартнеры&q=%25
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Пустая строка поиска объектов
+# Ожидание: 400, invalid_request, details[0].path=q.
+GET {{$dotenv OBJECTS_URL}}/search?type=Справочник._ДемоПартнеры&q=
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Лимит поиска объектов вне диапазона
+# Ожидание: 400, invalid_request, details[0].path=limit.
+GET {{$dotenv OBJECTS_URL}}/search?type=Справочник._ДемоПартнеры&limit=0&q=Альфа
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Поиск объектов с лимитом 1
+# Ожидание: 200; длина items не больше 1.
+GET {{$dotenv OBJECTS_URL}}/search?type=Справочник._ДемоПартнеры&q=а&limit=1
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Поиск объектов с лимитом 2
+# Ожидание: 200; длина items не больше 2; если в предыдущем ответе hasMore=true,
+# здесь элементов не меньше, чем там.
+GET {{$dotenv OBJECTS_URL}}/search?type=Справочник._ДемоПартнеры&q=а&limit=2
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Поиск в несуществующем типе
+# Ожидание: 404, not_found, сообщение "Тип не найден".
+GET {{$dotenv OBJECTS_URL}}/search?type=Справочник.НетТакого&q=А
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Поиск в неподдерживаемом виде метаданных
+# Ожидание: 400, invalid_request, сообщение "Вид метаданных не поддерживается".
+GET {{$dotenv OBJECTS_URL}}/search?type=РегистрСведений._ДемоРеестрСкладскихДокументов&q=А
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Поиск документов по номеру
+# Ожидание: 200; items/hasMore. Пустая выдача допустима, пока счёт не создан.
+GET {{$dotenv OBJECTS_URL}}/search?type=Документ._ДемоСчетНаОплатуПокупателю&q=0000
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
 ### Прочитать объект
