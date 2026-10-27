@@ -129,8 +129,36 @@ Authorization: {{$dotenv OBJECTS_AUTH}}
 GET {{$dotenv OBJECTS_URL}}/search?type=Документ._ДемоСчетНаОплатуПокупателю&q=0000
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
-### Прочитать объект
+### Прочитать партнёра
+# Ожидание: 200; id равен PARTNER_ID, type=Справочник._ДемоПартнеры;
+# в header есть Наименование, ЭтоГруппа, ПометкаУдаления, Ссылка;
+# tables содержит ДополнительныеРеквизиты, даже если массив пуст.
 GET {{$dotenv OBJECTS_URL}}/object?type=Справочник._ДемоПартнеры&id={{$dotenv PARTNER_ID}}
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Прочитать несуществующий объект
+# Ожидание: 404, not_found, сообщение "Объект не найден".
+GET {{$dotenv OBJECTS_URL}}/object?type=Справочник._ДемоПартнеры&id=00000000-0000-0000-0000-000000000000
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Неверный идентификатор объекта
+# Ожидание: 400, invalid_request, details[0].path=id.
+GET {{$dotenv OBJECTS_URL}}/object?type=Справочник._ДемоПартнеры&id=не-uuid
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Чтение в неподдерживаемом виде метаданных
+# Ожидание: 400, invalid_request, сообщение "Вид метаданных не поддерживается".
+GET {{$dotenv OBJECTS_URL}}/object?type=РегистрСведений._ДемоРеестрСкладскихДокументов&id={{$dotenv PARTNER_ID}}
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Прочитать хранилище значения
+# Если поиск нашёл вариант отчёта, подставьте его id вместо литерала.
+# Ожидание: 200; header.Настройки — JSON null или строка base64.
+GET {{$dotenv OBJECTS_URL}}/search?type=Справочник.ВариантыОтчетов&q=а&limit=1
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+###
+GET {{$dotenv OBJECTS_URL}}/object?type=Справочник.ВариантыОтчетов&id=00000000-0000-0000-0000-000000000000
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
 ### Создать объект — тело запроса задаёт ваша спецификация
