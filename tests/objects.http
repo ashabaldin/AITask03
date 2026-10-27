@@ -1,5 +1,5 @@
 # Запросы к сервису objects. Адрес, авторизация и идентификаторы — в .env рядом.
-# Пока расширение не загружено в базу, маршруты /types и /type отвечают 501 / not_implemented.
+# Пока расширение не загружено в базу, маршруты отвечают 501 / not_implemented.
 # После загрузки ожидания указаны под каждым запросом.
 
 ### Найти тип по слову
@@ -161,9 +161,259 @@ Authorization: {{$dotenv OBJECTS_AUTH}}
 GET {{$dotenv OBJECTS_URL}}/object?type=Справочник.ВариантыОтчетов&id=00000000-0000-0000-0000-000000000000
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
-### Создать объект — тело запроса задаёт ваша спецификация
+# ---------------------------------------------------------------------------
+# Создание, POST /object. Запросы создания создают объекты в базе: повтор создаёт ещё один.
+# Запросы со ссылками на ответы выше (groupA, partnerItem, invoiceA) выполняйте после них, в одном сеансе.
+# Обязательные поля счёта взяты из GET /type?name=Документ._ДемоСчетНаОплатуПокупателю:
+# Дата, ВалютаДокумента, Партнер, Организация, Ответственный, Подразделение; в строке Товары —
+# Номенклатура, Цена, Сумма, Всего. Суммы — литералы, сервис их не считает.
+# Открытие созданных объектов в 1С:Предприятии и сравнение списков до и после отказов выполняет пользователь.
+# ---------------------------------------------------------------------------
+
+### Создать группу партнёров
+# Ожидание: 201; id новый; header.ЭтоГруппа=true; header.Код непустой.
+# @name groupA
 POST {{$dotenv OBJECTS_URL}}/object
 Authorization: {{$dotenv OBJECTS_AUTH}}
 Content-Type: application/json
 
-{}
+{"type":"Справочник._ДемоПартнеры","header":{"Наименование":"Контрольная группа партнёров","ЭтоГруппа":true},"tables":{}}
+
+### Повтор создания группы
+# Ожидание: 201; id другой, чем у предыдущей группы (повтор не идемпотентен).
+# @name groupB
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоПартнеры","header":{"Наименование":"Контрольная группа партнёров","ЭтоГруппа":true},"tables":{}}
+
+### Элемент в созданной группе
+# Ожидание: 201; header.Родитель равен id группы groupA; header.ЭтоГруппа=false.
+# @name partnerItem
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоПартнеры","header":{"Наименование":"Контрольный партнёр","Родитель":"{{groupA.response.body.$.id}}","ВидПартнера":"ЮридическоеЛицо"},"tables":{}}
+
+### Элемент как родитель
+# Ожидание: 400, invalid_request, details[0].path=header.Родитель; текст не говорит, существует ли группа.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоПартнеры","header":{"Наименование":"Партнёр под элементом","Родитель":"{{partnerItem.response.body.$.id}}","ВидПартнера":"ЮридическоеЛицо"},"tables":{}}
+
+### Контактное лицо с владельцем-элементом
+# Ожидание: 201; header.Владелец равен id созданного партнёра partnerItem.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоКонтактныеЛицаПартнеров","header":{"Наименование":"Контрольное контактное лицо","Владелец":"{{partnerItem.response.body.$.id}}"},"tables":{}}
+
+### Контактное лицо с владельцем-группой
+# Ожидание: 400, invalid_request, details[0].path=header.Владелец.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоКонтактныеЛицаПартнеров","header":{"Наименование":"Контактное лицо группы","Владелец":"{{groupA.response.body.$.id}}"},"tables":{}}
+
+### Договор контрагента с пустым родителем
+# Обязательные поля закрыты существующими ссылками из .env: контрагент, организация, партнёр, валюта.
+# Ожидание: 201. Если штатная проверка заполнения не даёт создать договор — 422: проверку не отключать,
+# остановиться и согласовать границу.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоДоговорыКонтрагентов","header":{"Наименование":"Контрольный договор","Владелец":"{{$dotenv COUNTERPARTY_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","ВалютаРасчетов":"{{$dotenv CURRENCY_ID}}","Родитель":null},"tables":{}}
+
+### Договор контрагента, родитель — контрагент
+# Родитель договора — другой договор, не контрагент. Ожидание: 400, details[0].path=header.Родитель.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоДоговорыКонтрагентов","header":{"Наименование":"Договор с чужим родителем","Владелец":"{{$dotenv COUNTERPARTY_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","ВалютаРасчетов":"{{$dotenv CURRENCY_ID}}","Родитель":"{{$dotenv COUNTERPARTY_ID}}"},"tables":{}}
+
+### Договор контрагента, родитель — группа другого справочника
+# Ожидание: 400, details[0].path=header.Родитель.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоДоговорыКонтрагентов","header":{"Наименование":"Договор с группой","Владелец":"{{$dotenv COUNTERPARTY_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","ВалютаРасчетов":"{{$dotenv CURRENCY_ID}}","Родитель":"{{groupA.response.body.$.id}}"},"tables":{}}
+
+### Создать непроведённый счёт
+# Ожидание: 201; header.Проведен=false; header.Номер назначен; id читается GET /object ниже.
+# @name invoiceA
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Документ._ДемоСчетНаОплатуПокупателю","header":{"Дата":"2026-10-27T10:00:00","ВалютаДокумента":"{{$dotenv CURRENCY_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Ответственный":"{{$dotenv RESPONSIBLE_ID}}","Подразделение":"{{$dotenv DEPARTMENT_ID}}"},"tables":{"Товары":[{"Номенклатура":"{{$dotenv PRODUCT_ID}}","Количество":2,"Цена":100,"Сумма":200,"Всего":200}]}}
+
+### Прочитать созданный счёт
+# Ожидание: 200; тот же id, header.Проведен=false.
+GET {{$dotenv OBJECTS_URL}}/object?type=Документ._ДемоСчетНаОплатуПокупателю&id={{invoiceA.response.body.$.id}}
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Тот же счёт вторым POST
+# Ожидание: 201; id другой, чем у invoiceA.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Документ._ДемоСчетНаОплатуПокупателю","header":{"Дата":"2026-10-27T10:00:00","ВалютаДокумента":"{{$dotenv CURRENCY_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Ответственный":"{{$dotenv RESPONSIBLE_ID}}","Подразделение":"{{$dotenv DEPARTMENT_ID}}"},"tables":{"Товары":[{"Номенклатура":"{{$dotenv PRODUCT_ID}}","Количество":2,"Цена":100,"Сумма":200,"Всего":200}]}}
+
+### Счёт без даты
+# Ожидание: 400, details[0].path=header.Дата, сообщение "Дата обязательна".
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Документ._ДемоСчетНаОплатуПокупателю","header":{"ВалютаДокумента":"{{$dotenv CURRENCY_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Ответственный":"{{$dotenv RESPONSIBLE_ID}}","Подразделение":"{{$dotenv DEPARTMENT_ID}}"},"tables":{"Товары":[{"Номенклатура":"{{$dotenv PRODUCT_ID}}","Количество":2,"Цена":100,"Сумма":200,"Всего":200}]}}
+
+### Счёт с датой в UTC
+# Ожидание: 400, details[0].path=header.Дата.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Документ._ДемоСчетНаОплатуПокупателю","header":{"Дата":"2026-10-27T10:00:00Z","ВалютаДокумента":"{{$dotenv CURRENCY_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Ответственный":"{{$dotenv RESPONSIBLE_ID}}","Подразделение":"{{$dotenv DEPARTMENT_ID}}"},"tables":{"Товары":[{"Номенклатура":"{{$dotenv PRODUCT_ID}}","Количество":2,"Цена":100,"Сумма":200,"Всего":200}]}}
+
+### Счёт с полем Номер
+# Ожидание: 400, details[0].path=header.Номер (поле назначает 1С).
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Документ._ДемоСчетНаОплатуПокупателю","header":{"Номер":"123","Дата":"2026-10-27T10:00:00","ВалютаДокумента":"{{$dotenv CURRENCY_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Ответственный":"{{$dotenv RESPONSIBLE_ID}}","Подразделение":"{{$dotenv DEPARTMENT_ID}}"},"tables":{"Товары":[{"Номенклатура":"{{$dotenv PRODUCT_ID}}","Количество":2,"Цена":100,"Сумма":200,"Всего":200}]}}
+
+### Счёт со ссылкой на группу в ссылочном поле
+# Ожидание: 400, details[0].path=header.Партнер; текст — общий текст недопустимого значения или ссылки.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Документ._ДемоСчетНаОплатуПокупателю","header":{"Дата":"2026-10-27T10:00:00","ВалютаДокумента":"{{$dotenv CURRENCY_ID}}","Партнер":"{{groupA.response.body.$.id}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Ответственный":"{{$dotenv RESPONSIBLE_ID}}","Подразделение":"{{$dotenv DEPARTMENT_ID}}"},"tables":{"Товары":[{"Номенклатура":"{{$dotenv PRODUCT_ID}}","Количество":2,"Цена":100,"Сумма":200,"Всего":200}]}}
+
+### Счёт без обязательного поля шапки
+# Ожидание: 422, validation_failed, details не пуст; документ не создаётся.
+# Что документ не остался, подтверждает пользователь списком документов до и после.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Документ._ДемоСчетНаОплатуПокупателю","header":{"Дата":"2026-10-27T10:00:00","ВалютаДокумента":"{{$dotenv CURRENCY_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Ответственный":"{{$dotenv RESPONSIBLE_ID}}","Подразделение":"{{$dotenv DEPARTMENT_ID}}"},"tables":{"Товары":[{"Номенклатура":"{{$dotenv PRODUCT_ID}}","Количество":2,"Цена":100,"Сумма":200,"Всего":200}]}}
+
+### Счёт без обязательного поля строки
+# Ожидание: 422, validation_failed, details не пуст (в строке нет Цены).
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Документ._ДемоСчетНаОплатуПокупателю","header":{"Дата":"2026-10-27T10:00:00","ВалютаДокумента":"{{$dotenv CURRENCY_ID}}","Партнер":"{{$dotenv PARTNER_ID}}","Организация":"{{$dotenv ORGANIZATION_ID}}","Ответственный":"{{$dotenv RESPONSIBLE_ID}}","Подразделение":"{{$dotenv DEPARTMENT_ID}}"},"tables":{"Товары":[{"Номенклатура":"{{$dotenv PRODUCT_ID}}","Количество":2,"Сумма":200,"Всего":200}]}}
+
+### Чтение по выдуманному id после отказа
+# Ожидание: 404, not_found: отказ 422 не оставил документа с таким id.
+GET {{$dotenv OBJECTS_URL}}/object?type=Документ._ДемоСчетНаОплатуПокупателю&id=00000000-0000-0000-0000-000000000000
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Партнёр с полем Код
+# Ожидание: 400, details[0].path=header.Код, причина — код назначает 1С.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоПартнеры","header":{"Наименование":"Партнёр с кодом","Код":"000000001","ВидПартнера":"ЮридическоеЛицо"},"tables":{}}
+
+### Партнёр с ДополнительныеРеквизиты
+# Ожидание: 400, details[0].path=tables.ДополнительныеРеквизиты.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоПартнеры","header":{"Наименование":"Партнёр с свойствами","ВидПартнера":"ЮридическоеЛицо"},"tables":{"ДополнительныеРеквизиты":[]}}
+
+### Организация с ЭтоГруппа
+# Ожидание: 400, details[0].path=header.ЭтоГруппа, "Неизвестное поле".
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоОрганизации","header":{"Наименование":"Организация-группа","ЭтоГруппа":true},"tables":{}}
+
+### Неизвестный ключ шапки
+# Ожидание: 400, details[0].path=header.НетТакогоПоля.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоПартнеры","header":{"Наименование":"Партнёр","НетТакогоПоля":1},"tables":{}}
+
+### Хвост после JSON
+# Ожидание: 400, invalid_request: после значения тела есть лишние данные.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник._ДемоПартнеры","header":{},"tables":{}} {}
+
+### Неверный тип тела
+# Ожидание: 415, unsupported_media_type.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: text/plain
+
+{"type":"Справочник._ДемоПартнеры","header":{},"tables":{}}
+
+### Создание в неподдерживаемом виде метаданных
+# Ожидание: 400, invalid_request, "Вид метаданных не поддерживается".
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"РегистрСведений._ДемоРеестрСкладскихДокументов","header":{},"tables":{}}
+
+### Хранилище значения: строка не base64
+# Ожидание: 400 до записи, details[0].path=header.Настройки.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник.ВариантыОтчетов","header":{"Наименование":"Контрольный вариант","Настройки":"%%%"},"tables":{}}
+
+### Вариант отчёта: прочитать существующий для образца
+# Образец для запроса ниже: id первого найденного варианта, затем его header.
+# @name variantSearch
+GET {{$dotenv OBJECTS_URL}}/search?type=Справочник.ВариантыОтчетов&q=а&limit=1
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+###
+# @name variantRead
+GET {{$dotenv OBJECTS_URL}}/object?type=Справочник.ВариантыОтчетов&id={{variantSearch.response.body.$.items[0].id}}
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Вариант отчёта с хранилищем из существующего варианта
+# Не выполнялся. Обязательные поля варианта (Автор, Отчет, ТипОтчета, Назначение) берутся из образца.
+# Ожидание: 201 и тот же header.Настройки при следующем GET. Если штатная проверка заполнения
+# не даёт создать вариант (422) — остановиться и согласовать границу, проверку не обходить.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник.ВариантыОтчетов","header":{"Наименование":"Контрольный вариант с настройками","Автор":"{{variantRead.response.body.$.header.Автор}}","Отчет":{{variantRead.response.body.$.header.Отчет}},"ТипОтчета":"{{variantRead.response.body.$.header.ТипОтчета}}","Назначение":"{{variantRead.response.body.$.header.Назначение}}","Настройки":"{{variantRead.response.body.$.header.Настройки}}"},"tables":{}}
+
+### Полномочие доверенности с идентификатором не UUID
+# Ожидание: 400 до записи, details[0].path=tables.Полномочия[0].ИдентификаторПолномочия.
+# Каноническая строка 00000000-0000-0000-0000-000000000000 для этого поля допустима как значение;
+# доверенность целиком не создаётся: её остальные обязательные поля в этом файле не закрыты.
+POST {{$dotenv OBJECTS_URL}}/object
+Authorization: {{$dotenv OBJECTS_AUTH}}
+Content-Type: application/json
+
+{"type":"Справочник.МашиночитаемыеДоверенности","header":{},"tables":{"Полномочия":[{"ИдентификаторПолномочия":"не-uuid"}]}}
