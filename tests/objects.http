@@ -1,12 +1,85 @@
 # Запросы к сервису objects. Адрес, авторизация и идентификаторы — в .env рядом.
-# Пока обработчики не реализованы, каждый запрос отвечает 501.
+# Пока расширение не загружено в базу, маршруты /types и /type отвечают 501 / not_implemented.
+# После загрузки ожидания указаны под каждым запросом.
 
 ### Найти тип по слову
-GET {{$dotenv OBJECTS_URL}}/types?q=счет
+# Ожидание: 200; в items есть name=Справочник._ДемоПартнеры, title=Демо: Партнеры, kind=catalog.
+GET {{$dotenv OBJECTS_URL}}/types?q=партнер
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
-### Описать тип
+### Пустая строка поиска
+# Ожидание: 400, error.code=invalid_request, details[0].path=q.
+GET {{$dotenv OBJECTS_URL}}/types?q=
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Символ % ищется буквально
+# Ожидание: 200; у каждого элемента имя или синоним содержит %. Пустой items допустим.
+GET {{$dotenv OBJECTS_URL}}/types?q=%25&limit=20
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Лимит вне диапазона
+# Ожидание: 400, invalid_request, details[0].path=limit.
+GET {{$dotenv OBJECTS_URL}}/types?limit=0&q=счет
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Лимит 1
+# Ожидание: 200; items не длиннее 1; при длине 1 поле hasMore булево.
+GET {{$dotenv OBJECTS_URL}}/types?q=счет&limit=1
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Описать иерархический справочник с группами
+# Ожидание: 200; hierarchical=folders, owners=[]; Наименование writable и required;
+# Код writable=false, reason "Код назначает 1С"; ЭтоГруппа writable; поля Владелец нет.
+GET {{$dotenv OBJECTS_URL}}/type?name=Справочник._ДемоПартнеры
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Описать неиерархический справочник
+# Ожидание: 200; hierarchical=none; полей ЭтоГруппа, Родитель, Владелец нет.
+GET {{$dotenv OBJECTS_URL}}/type?name=Справочник._ДемоОрганизации
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Описать справочник с иерархией элементов и владельцем
+# Ожидание: 200; hierarchical=items; owners содержит Справочник._ДемоКонтрагенты;
+# поле Родитель есть, поля ЭтоГруппа нет.
+GET {{$dotenv OBJECTS_URL}}/type?name=Справочник._ДемоДоговорыКонтрагентов
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Описать подчинённый справочник
+# Ожидание: 200; owners содержит Справочник._ДемоПартнеры; поле Владелец writable.
+GET {{$dotenv OBJECTS_URL}}/type?name=Справочник._ДемоКонтактныеЛицаПартнеров
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Описать документ
+# Ожидание: 200; kind=document; свойств hierarchical и owners нет; Дата writable и required;
+# Номер writable=false; таблица ДополнительныеРеквизиты writable=false,
+# reason "Дополнительные свойства БСП не поддерживаются этой версией".
+# Прикладные реквизиты списком не проверяются: достаточно стандартных полей и непустого fields.
 GET {{$dotenv OBJECTS_URL}}/type?name=Документ._ДемоСчетНаОплатуПокупателю
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Хранилище значения
+# Ожидание: 200; у поля Настройки тип name=ValueStorage, kind=valueStorage.
+GET {{$dotenv OBJECTS_URL}}/type?name=Справочник.ВариантыОтчетов
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Уникальный идентификатор в табличной части
+# Ожидание: 200; у таблицы Полномочия поле ИдентификаторПолномочия имеет kind=uuid, name=UUID.
+GET {{$dotenv OBJECTS_URL}}/type?name=Справочник.МашиночитаемыеДоверенности
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Неподдерживаемый вид метаданных
+# Ожидание: 400, invalid_request, сообщение "Вид метаданных не поддерживается".
+GET {{$dotenv OBJECTS_URL}}/type?name=РегистрСведений._ДемоРеестрСкладскихДокументов
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Тип не найден
+# Ожидание: 404, not_found, сообщение "Тип не найден".
+GET {{$dotenv OBJECTS_URL}}/type?name=Справочник.НетТакого
+Authorization: {{$dotenv OBJECTS_AUTH}}
+
+### Имя без точки
+# Ожидание: 400, invalid_request, details[0].path=name.
+GET {{$dotenv OBJECTS_URL}}/type?name=безточки
 Authorization: {{$dotenv OBJECTS_AUTH}}
 
 ### Найти объекты типа
